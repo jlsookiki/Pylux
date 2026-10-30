@@ -1,6 +1,5 @@
-// Tests for SteamTools behaviour that does not need a Steam install:
-// launch-option quoting, and later the user resolution and write rules
-// against a temporary Steam directory.
+// Pure-logic tests: launch-option quoting and the update-or-append rules.
+// test_steamtools_dir.cpp covers behaviour that needs a Steam directory.
 
 #include "shortcutmatch.h"
 #include "steamtools.h"
@@ -19,8 +18,6 @@ static int failures = 0;
 		}                                                                           \
 	} while(0)
 
-// Steam splits LaunchOptions like a shell, so a value with spaces has to
-// arrive as one argument.
 static void testQuoteArgument()
 {
 	CHECK(SteamTools::quoteArgument("Living Room") == QStringLiteral("\"Living Room\""));
@@ -75,11 +72,52 @@ static void testMergeKeepsUserData()
 	CHECK(merged.properties().last().key == QStringLiteral("icon"));
 }
 
+static SteamShortcutEntry shortcut(uint32_t appid, const char *name, const char *exe, const char *launch, QStringList tags = {})
+{
+	SteamShortcutEntry e;
+	e.setInt("appid", appid);
+	e.setString("AppName", name);
+	e.setString("Exe", exe);
+	e.setString("LaunchOptions", launch);
+	if(!tags.isEmpty())
+		e.setList("tags", tags);
+	return e;
+}
+
+static void testFindExisting()
+{
+	QVector<SteamShortcutEntry> entries = {
+		shortcut(1, "Elden Ring", "\"/opt/heroic\"", "--game elden", {"favorite"}),
+		shortcut(2, "Ghost of Yotei", "\"flatpak\"", "run io.pylux --entitlement-id \"A\" cloudGameLibrary", {"PlayStation", "Remote Play"}),
+		shortcut(3, "Pylux", "\"/old/path/pylux\"", "", {"PlayStation", "Remote Play"}),
+		// Heroic as a Flatpak on a Steam Deck: same "flatpak" Exe as ours.
+		shortcut(4, "Elden Ring", "\"flatpak\"", "run com.heroicgameslauncher.hgl --no-gui \"heroic://launch?appName=elden\"", {"favorite"}),
+		shortcut(5, "Old Pylux Tile", "\"flatpak\"", "run io.github.ForWard_Technologies_LLC.Pylux --nickname \"PS5\" --title-id \"T\" launchTitle"),
+	};
+
+	// Same appid wins regardless of anything else.
+	CHECK(ShortcutMatch::findExisting(entries, shortcut(2, "renamed", "\"x\"", "y")) == 1);
+	// Same command line, different appid (name changed): update.
+	CHECK(ShortcutMatch::findExisting(entries, shortcut(9, "Ghost of Yōtei", "\"flatpak\"", "run io.pylux --entitlement-id \"A\" cloudGameLibrary")) == 1);
+	// Same name, our tile at an old path: update.
+	CHECK(ShortcutMatch::findExisting(entries, shortcut(9, "pylux", "\"/new/path/pylux\"", "")) == 2);
+	// Same name and same "flatpak" Exe as Heroic's tile: still not ours, append.
+	CHECK(ShortcutMatch::findExisting(entries, shortcut(9, "Elden Ring", "\"flatpak\"", "run io.github.ForWard_Technologies_LLC.Pylux --title-id \"E\" launchTitle")) == -1);
+	// Same name, same Flatpak app id, no tags at all: ours, update.
+	CHECK(ShortcutMatch::findExisting(entries, shortcut(9, "old pylux tile", "\"flatpak\"", "run io.github.ForWard_Technologies_LLC.Pylux --title-id \"Z\" launchTitle")) == 4);
+	// Same name as somebody else's tile: leave it alone, append.
+	CHECK(ShortcutMatch::findExisting(entries, shortcut(9, "Elden Ring", "\"flatpak\"", "run io.pylux --title-id \"E\" launchTitle")) == -1);
+	// Nothing in common: append.
+	CHECK(ShortcutMatch::findExisting(entries, shortcut(9, "GTA VI", "\"flatpak\"", "run io.pylux --entitlement-id \"G\" cloudGameLibrary")) == -1);
+	CHECK(ShortcutMatch::findExisting({}, shortcut(9, "GTA VI", "\"flatpak\"", "")) == -1);
+}
+
 int main(int argc, char **argv)
 {
 	QCoreApplication app(argc, argv);
 	testQuoteArgument();
 	testMergeKeepsUserData();
+	testFindExisting();
 	if(failures)
 	{
 		fprintf(stderr, "%d check(s) failed\n", failures);

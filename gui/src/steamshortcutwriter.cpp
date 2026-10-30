@@ -79,17 +79,7 @@ SteamShortcutOutcome SteamShortcutWriter::write(const QString &steamDir, const Q
 
 	SteamShortcutEntry entry = steam.buildShortcutEntry(appName, executable, launchOptions, artwork);
 
-	// Same app id means Steam already considers it the same shortcut. Fall
-	// back to the same command line, then to the same name, so re-adding
-	// after a rename or a path change updates rather than duplicates.
-	int index = -1;
-	for(int i = 0; i < entries.size() && index < 0; i++)
-		if(entries[i].appid() == entry.appid()
-			|| (entries[i].getExe() == entry.getExe() && entries[i].getLaunchOptions() == entry.getLaunchOptions()))
-			index = i;
-	for(int i = 0; i < entries.size() && index < 0; i++)
-		if(entries[i].getAppName().compare(entry.getAppName(), Qt::CaseInsensitive) == 0)
-			index = i;
+	const int index = ShortcutMatch::findExisting(entries, entry);
 
 	if(index >= 0)
 	{
