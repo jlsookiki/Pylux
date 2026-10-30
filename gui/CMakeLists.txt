@@ -49,6 +49,8 @@ set(SOURCE_FILES
 	src/cloudstreamingbackend.cpp
 	include/cloudcatalogbackend.h
 	src/cloudcatalogbackend.cpp
+	include/steamshortcutwriter.h
+	src/steamshortcutwriter.cpp
 	include/jsonrequester.h
 	src/jsonrequester.cpp
 	src/qml/qml.qrc

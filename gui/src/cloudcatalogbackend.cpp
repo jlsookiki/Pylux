@@ -3,6 +3,7 @@
 #include "cloudcatalogbackend.h"
 #ifdef CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 #include "steamtools.h"
+#include "steamshortcutwriter.h"
 #endif
 #include <chiaki/cloudcatalog.h>
 #include <chiaki/log.h>
@@ -17,8 +18,6 @@
 #include <QJsonDocument>
 #include <QNetworkRequest>
 #include <QNetworkReply>
-#include <QSslConfiguration>
-#include <QSslSocket>
 #include <QEventLoop>
 #include <QTimer>
 #include <QCoreApplication>
@@ -759,11 +758,6 @@ QPixmap CloudCatalogBackend::downloadImageFromUrl(const QString &url, int timeou
     request.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     
-    // Configure SSL
-    QSslConfiguration sslConfig = request.sslConfiguration();
-    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone); // Accept any certificate for CDN images
-    request.setSslConfiguration(sslConfig);
-    
     QNetworkReply *reply = networkManager->get(request);
     
     QEventLoop loop;
@@ -1015,164 +1009,33 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     artwork.insert("logo", new QPixmap(logo));
     
     // Build launch options based on command
-    qInfo() << "Building launch options with" << command << "command...";
     QString escaped_identifier = gameIdentifier;
     escaped_identifier.replace("\"", "\\\"");  // Escape quotes for shell safety
-    
+
     QString launch_options;
     if (command == "cloudGameCatalog") {
         launch_options = QString("--product-id \"%1\" cloudGameCatalog").arg(escaped_identifier);
     } else { // cloudGameLibrary
         launch_options = QString("--entitlement-id \"%1\" cloudGameLibrary").arg(escaped_identifier);
     }
-    
+    // A tile launched from Steam must open the same settings profile the
+    // user signed in to PSN with, or it starts with an empty NPSSO.
+    launch_options.prepend(SteamShortcutWriter::profileOption(settings ? settings->GetCurrentProfile() : QString()));
+    const QString executable = SteamShortcutWriter::resolveExecutable(launch_options);
+
     qInfo() << "Launch options:" << launch_options;
     infoLambda(QString("[I] Creating Steam shortcut with launch options: %1").arg(launch_options));
-    
-    // Initialize SteamTools
-    qInfo() << "Initializing SteamTools with steamDir:" << steamDir;
-    SteamTools* steam_tools = new SteamTools(infoLambda, errorLambda, steamDir);
-    
-    qInfo() << "Checking if Steam exists...";
-    bool steamExists = steam_tools->steamExists();
-    qInfo() << "Steam exists:" << steamExists;
-    
-    if (!steamExists) {
-        qWarning() << "Steam does not exist, cannot create shortcut";
-        if (cb.isCallable())
-            cb.call({QString("[E] Steam does not exist, cannot create Steam Shortcut"), false, true});
-        
-        // Clean up artwork
-        for (auto it = artwork.begin(); it != artwork.end(); ++it) {
-            delete it.value();
-        }
-        delete steam_tools;
-        return;
-    }
-    
-    // Get executable path
-    QString executable = QCoreApplication::applicationFilePath();
-    qInfo() << "Application executable path:" << executable;
-    
-    #ifdef Q_OS_LINUX
-        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        // In a Flatpak sandbox applicationFilePath() is /app/bin/... which doesn't
-        // exist on the host; Steam must invoke the host's flatpak command instead
-        // (same as QmlBackend::getExecutable())
-        if (!env.value("FLATPAK_ID").isEmpty()) {
-            executable = QStringLiteral("flatpak");
-        } else if (env.contains("APPIMAGE")) {
-            executable = env.value("APPIMAGE");
-            qInfo() << "Running as AppImage, using:" << executable;
-        }
-    #endif
-    
-    // Check for Flatpak
-    if (executable == "flatpak") {
-        const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        QString flatpakId = env.value("FLATPAK_ID");
-        launch_options.prepend(QString("run %1 ").arg(flatpakId));
-        qInfo() << "Running as Flatpak, updated launch options:" << launch_options;
-    }
-    
-    // If running from extracted pylux directory, use launch.sh instead of direct executable
-    if (executable != "flatpak" && !executable.endsWith(".AppImage"))
-    {
-        QFileInfo exeInfo(executable);
-        QString exePath = exeInfo.absoluteFilePath();
-        
-        if (exePath.contains("/usr/bin/"))
-        {
-            QDir exeDir(exeInfo.absolutePath());
-            if (exeDir.cdUp() && exeDir.cdUp())
-            {
-                QString launchScript = exeDir.absoluteFilePath("launch.sh");
-                if (QFile::exists(launchScript))
-                {
-                    qInfo() << "Using launch.sh for cloud game Steam shortcut:" << launchScript;
-                    executable = launchScript;
-                }
-            }
-        }
-    }
-    
-    // Build the shortcut
-    qInfo() << "Building shortcut entry...";
-    QString shortcut_name = gameName;
-    SteamShortcutEntry newShortcut = steam_tools->buildShortcutEntry(
-        std::move(shortcut_name), 
-        std::move(executable), 
-        std::move(launch_options), 
-        std::move(artwork)
-    );
-    qInfo() << "Shortcut entry built successfully";
-    
-    // Parse existing shortcuts
-    qInfo() << "Parsing existing shortcuts...";
-    QVector<SteamShortcutEntry> shortcuts = steam_tools->parseShortcuts();
-    qInfo() << "Found" << shortcuts.size() << "existing shortcuts";
-    
-    bool found = false;
-    
-    // Check if shortcut already exists
-    qInfo() << "Checking if shortcut already exists...";
-    for (int i = 0; i < shortcuts.size(); ++i) {
-        if (shortcuts[i].getAppName() == newShortcut.getAppName()) {
-            qInfo() << "Found existing shortcut at index" << i << ", updating...";
-            infoLambda(QString("[I] Updating existing shortcut for %1").arg(newShortcut.getAppName()));
-            shortcuts[i] = newShortcut;
-            found = true;
-            break;
-        }
-    }
-    
-    if (!found) {
-        qInfo() << "No existing shortcut found, adding new one";
-        infoLambda(QString("[I] Adding new shortcut for %1").arg(newShortcut.getAppName()));
-        shortcuts.append(newShortcut);
-    }
-    
-    // Update shortcuts
-    qInfo() << "Updating shortcuts file with" << shortcuts.size() << "total shortcuts...";
-    steam_tools->updateShortcuts(shortcuts);
-    qInfo() << "Shortcuts updated successfully";
-    
-    // Update controller config for Steam Deck
-    QString controller_layout_workshop_id = "3049833406";
-    qInfo() << "Updating Steam Deck controller config with workshop ID:" << controller_layout_workshop_id;
-    try {
-        steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
-    } catch (const std::exception& e) {
-        qWarning() << "Failed to update Steam controller config:" << e.what();
-    }
-    
-    infoLambda("[I] Successfully created Steam shortcut!");
-    infoLambda("");
-    infoLambda("══════════════════════════════════════════════════════");
-    infoLambda("✓ SHORTCUT CREATED SUCCESSFULLY!");
-    infoLambda("══════════════════════════════════════════════════════");
-    infoLambda("");
-    infoLambda(QString("→ Game: %1").arg(gameName));
-    infoLambda("");
-    infoLambda("⚠ IMPORTANT: Please restart Steam for the shortcut to appear!");
-    infoLambda("");
-    qInfo() << "Calling final callback with done=true, ok=true";
-    qInfo() << "Callback is callable:" << cb.isCallable();
-    if (cb.isCallable()) {
-        QJSValue result = cb.call({QString("Shortcut created successfully for %1").arg(gameName), true, true});
-        qInfo() << "Callback call result:" << (result.isError() ? result.toString() : "success");
-        if (result.isError()) {
-            qWarning() << "Callback error:" << result.toString();
-        }
-    } else {
-        qWarning() << "Callback is not callable!";
-    }
-    
-    // Clean up artwork
+
+    SteamShortcutOutcome outcome = SteamShortcutWriter::write(steamDir, gameName, executable, launch_options, artwork, infoLambda);
+
     for (auto it = artwork.begin(); it != artwork.end(); ++it) {
         delete it.value();
     }
-    delete steam_tools;
+
+    qInfo() << "createCloudSteamShortcut:" << (outcome.ok ? "ok" : "failed") << outcome.message;
+    if (cb.isCallable()) {
+        cb.call({outcome.message, outcome.ok, true});
+    }
 
 #endif // CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 }

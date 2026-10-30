@@ -7,8 +7,12 @@
 #include "qmlsettings.h"
 #include "cloudstreamingbackend.h"
 #include "cloudcatalogbackend.h"
+#if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
+#include "steamshortcutwriter.h"
+#endif
 
 #include <QObject>
+#include <functional>
 #include <QThread>
 #include <QJSValue>
 #include <QUrl>
@@ -254,6 +258,7 @@ public:
 	Q_INVOKABLE void configureSteamControllerLayout();
 	Q_INVOKABLE void ensurePyluxSteamShortcut(const QJSValue &callback);
 	Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
+	SteamShortcutOutcome writeAppShortcut(const QString &shortcutName, QString launchOptions, const QString &steamDir, const std::function<void(const QString &)> &log);
 #endif
 
 #ifdef CHIAKI_ENABLE_STEAMWORKS
@@ -342,7 +347,6 @@ private:
     void resumeFromSleep();
     uint32_t getStreamShortcut() const;
     void updateStreamShortcut();
-    QString getExecutable();
 
     Settings *settings = {};
     QmlSettings *settings_qml = {};

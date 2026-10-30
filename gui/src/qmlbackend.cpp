@@ -21,6 +21,7 @@
 #endif
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 #include "steamtools.h"
+#include "steamshortcutwriter.h"
 #endif
 #ifdef CHIAKI_ENABLE_STEAMWORKS
 #include "steamworks/steamworks_wrapper.h"
@@ -1427,7 +1428,6 @@ QVariantList QmlBackend::hiddenHosts() const
     return out;
 }
 
-
 bool QmlBackend::registerHost(const QString &host, const QString &psn_id, const QString &pin, const QString &cpin, bool broadcast, int target, const QJSValue &callback)
 {
     ChiakiRegistInfo info = {};
@@ -2522,20 +2522,6 @@ void QmlBackend::updateDiscoveryHosts()
 }
 
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
-QString QmlBackend::getExecutable() {
-#if defined(Q_OS_LINUX)
-    //Check for flatpak
-    const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    QString flatpakId = env.value("FLATPAK_ID");
-    QString appImagePath = env.value("APPIMAGE");
-    if (!flatpakId.isEmpty()) {
-        return QString("flatpak");
-    }
-    if (!appImagePath.isEmpty())
-        return appImagePath;
-#endif
-    return QCoreApplication::applicationFilePath();
-}
 
 /**
  * Get the base Steam directory path.
@@ -2573,49 +2559,11 @@ QString QmlBackend::getSteamBaseDir()
     return steamBaseDir;
 }
 
-/**
- * Get the most recent Steam user ID.
- * 
- * NOTE: This is duplicated from SteamTools::getMostRecentUser() in third-party/cpp-steam-tools/src/steamtools.cpp
- * because that method is private. If the original changes, this must be updated to match.
- * 
- * Original source: third-party/cpp-steam-tools/src/steamtools.cpp lines 61-96
- */
 QString QmlBackend::getSteamUserId()
 {
-    QString steamBaseDir = getSteamBaseDir();
-    if (!QDir(steamBaseDir).exists()) {
-        return QString();
-    }
-    
-    QString steamConfigFilePath = QString("%1/config/loginusers.vdf").arg(steamBaseDir);
-    QFile steamConfigfile(steamConfigFilePath);
-    
-    if (!steamConfigfile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qCWarning(chiakiGui) << "Failed to open loginusers.vdf:" << steamConfigfile.errorString();
-        return QString();
-    }
-    
-    QTextStream in(&steamConfigfile);
-    QString steamid;
-    QString user_id;
-    
-    // Read the file line by line to find the most recent user
-    while (!in.atEnd()) {
-        QString line = in.readLine();
-        
-        if (line.contains("7656119") && !line.contains("PersonalName")) {
-            steamid = line.mid(line.indexOf("7656119"), line.size() - 1);
-        } else if ((line.contains("mostrecent", Qt::CaseInsensitive) || line.contains("MostRecent")) &&
-                   line.contains("\"1\"")) {
-            unsigned long long steamidLongLong = steamid.toULongLong();
-            steamidLongLong -= 76561197960265728;
-            user_id = QString::number(steamidLongLong);
-        }
-    }
-    
-    steamConfigfile.close();
-    return user_id;
+    auto noop = [](const QString &) {};
+    SteamTools steam(noop, noop, getSteamBaseDir());
+    return steam.hasUser() ? steam.userId() : QString();
 }
 
 void QmlBackend::configureSteamControllerLayout()
@@ -2687,17 +2635,21 @@ void QmlBackend::ensurePyluxSteamShortcut(const QJSValue &callback)
     const QString profile = settings->GetCurrentProfile();
     const QString name = profile.isEmpty() ? QStringLiteral("Pylux")
                                            : QStringLiteral("Pylux %1").arg(profile);
-    const QString launchOptions = profile.isEmpty() ? QString()
-                                                    : QStringLiteral("--profile=%1").arg(profile);
+    const QString launchOptions = SteamShortcutWriter::profileOption(profile).trimmed();
 
     auto noop = [](const QString &) {};
     SteamTools steam(noop, noop, QString());
-    if (!steam.steamExists()) {
+    if (!steam.steamExists() || !steam.hasUser()) {
         done(false);
         return;
     }
 
-    QVector<SteamShortcutEntry> shortcuts = steam.parseShortcuts();
+    QVector<SteamShortcutEntry> shortcuts;
+    if (!steam.parseShortcuts(shortcuts)) {
+        qCWarning(chiakiGui) << "Not adding Pylux to Steam:" << steam.lastError();
+        done(false);
+        return;
+    }
     for (auto &entry : shortcuts) {
         if (entry.getAppName().contains(QStringLiteral("Pylux"), Qt::CaseInsensitive)) {
             done(false);
@@ -2705,14 +2657,12 @@ void QmlBackend::ensurePyluxSteamShortcut(const QJSValue &callback)
         }
     }
 
-    createSteamShortcut(name, launchOptions, QJSValue(), QString());
-    done(true);
+    auto log = [](const QString &msg) { qCInfo(chiakiGui) << "SteamShortcut:" << msg; };
+    done(writeAppShortcut(name, launchOptions, QString(), log).ok);
 }
 
-void QmlBackend::createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir)
+SteamShortcutOutcome QmlBackend::writeAppShortcut(const QString &shortcutName, QString launchOptions, const QString &steamDir, const std::function<void(const QString &)> &log)
 {
-    QJSValue cb = callback;
-    QString controller_layout_workshop_id = "3049833406";
     QMap<QString, const QPixmap*> artwork;
     auto landscape = QPixmap(":/icons/steam_landscape.png");
     auto portrait = QPixmap(":/icons/steam_portrait.png");
@@ -2727,74 +2677,23 @@ void QmlBackend::createSteamShortcut(QString shortcutName, QString launchOptions
     artwork.insert("hero", &hero);
     artwork.insert("icon", &icon);
     artwork.insert("logo", &logo);
-    
-    auto infoLambda = [callback](const QString &infoMessage) {
+
+    const QString executable = SteamShortcutWriter::resolveExecutable(launchOptions);
+    return SteamShortcutWriter::write(steamDir, shortcutName, executable, launchOptions, artwork, log);
+}
+
+void QmlBackend::createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir)
+{
+    QJSValue cb = callback;
+    auto log = [callback](const QString &msg) {
+        qCInfo(chiakiGui) << "SteamShortcut:" << msg;
         QJSValue icb = callback;
         if (icb.isCallable())
-            icb.call({infoMessage, true, false});
+            icb.call({msg, true, false});
     };
-
-    auto errorLambda = [callback](const QString &errorMessage) {
-        QJSValue icb = callback;
-        if (icb.isCallable())
-            icb.call({errorMessage, false, true});
-    };
-    SteamTools* steam_tools = new SteamTools(infoLambda, errorLambda, steamDir);
-    bool steamExists = steam_tools->steamExists();
-    if(!steamExists)
-    {
-        if (cb.isCallable())
-            cb.call({QString("[E] Steam does not exist, cannot create Steam Shortcut"), false, true});
-        delete steam_tools;
-        return;
-    }
-
-    QString executable = getExecutable();
-    if(executable == "flatpak")
-    {
-        const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        QString flatpakId = env.value("FLATPAK_ID");
-        launchOptions.prepend(QString("run %1 ").arg(flatpakId));
-    }
-    SteamShortcutEntry newShortcut = steam_tools->buildShortcutEntry(std::move(shortcutName), std::move(executable), std::move(launchOptions), std::move(artwork));
-
-    QVector<SteamShortcutEntry> shortcuts = steam_tools->parseShortcuts();
-    bool found = false;
-    for (auto& map : shortcuts) {
-        if (map.getExe() == newShortcut.getExe() && map.getLaunchOptions() == newShortcut.getLaunchOptions()) {
-            // Replace the entire map with the new one
-            
-            if (cb.isCallable())
-                cb.call({QString("[I] Updating Steam entry"), true, false});
-            map = newShortcut;
-            found = true;
-            break;  // Stop iterating once a match is found
-        }
-    }
-
-   //If we didn't find it to update, let's add it to the end
-    if (!found) {
-        if (cb.isCallable())
-            cb.call({QString("[I] Adding Steam entry ") + QString(newShortcut.getAppName().toStdString().c_str()), false, true});
-        shortcuts.append(newShortcut);
-    }
-    steam_tools->updateShortcuts(std::move(shortcuts));
-    try {
-        steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
-    } catch (const std::exception& e) {
-        qCWarning(chiakiGui) << "Failed to update Steam controller config:" << e.what();
-    }
-    if (!found)
-    {
-        if (cb.isCallable())
-            cb.call({QString("[I] Added Steam entry: ") + QString(newShortcut.getAppName().toStdString().c_str()), true, true});
-    }
-    else
-    {
-        if (cb.isCallable())
-            cb.call({QString("[I] Updated Steam entry: ") + QString(newShortcut.getAppName().toStdString().c_str()), true, true});
-    }
-    delete steam_tools;
+    SteamShortcutOutcome outcome = writeAppShortcut(shortcutName, launchOptions, steamDir, log);
+    if (cb.isCallable())
+        cb.call({outcome.message, outcome.ok, true});
 }
 #endif
 

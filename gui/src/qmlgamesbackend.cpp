@@ -1,14 +1,13 @@
 #include "qmlgamesbackend.h"
 #ifdef CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 #include "steamtools.h"
+#include "steamshortcutwriter.h"
 #endif
 #include "psntoken.h"
 
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
-#include <QSslConfiguration>
-#include <QSslSocket>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -617,11 +616,6 @@ QPixmap QmlGamesBackend::downloadImageFromUrl(const QString &url, int timeoutMs)
     request.setHeader(QNetworkRequest::UserAgentHeader, "Mozilla/5.0");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     
-    // Configure SSL
-    QSslConfiguration sslConfig = request.sslConfiguration();
-    sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone); // Accept any certificate for CDN images
-    request.setSslConfiguration(sslConfig);
-    
     QNetworkReply *reply = network_manager->get(request);
     
     QEventLoop loop;
@@ -919,156 +913,27 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     }
     
     // Build launch options using launchTitle command
-    qCInfo(chiakiGuiGames) << "Building launch options with launchTitle command...";
     QString escaped_device_name = deviceName;
     escaped_device_name.replace("\"", "\\\"");  // Escape quotes for shell safety
     QString escaped_title_id = titleId;
     escaped_title_id.replace("\"", "\\\"");  // Escape quotes for shell safety
-    
+
     QString launch_options = QString("--nickname \"%1\" --title-id \"%2\" launchTitle").arg(escaped_device_name, escaped_title_id);
-    
+    launch_options.prepend(SteamShortcutWriter::profileOption(settings ? settings->GetCurrentProfile() : QString()));
+    const QString executable = SteamShortcutWriter::resolveExecutable(launch_options);
+
     qCInfo(chiakiGuiGames) << "Launch options:" << launch_options;
     infoLambda(QString("[I] Creating Steam shortcut with launch options: %1").arg(launch_options));
-    
-    // Initialize SteamTools
-    qCInfo(chiakiGuiGames) << "Initializing SteamTools with steamDir:" << steamDir;
-    SteamTools* steam_tools = new SteamTools(infoLambda, errorLambda, steamDir);
-    
-    qCInfo(chiakiGuiGames) << "Checking if Steam exists...";
-    bool steamExists = steam_tools->steamExists();
-    qCInfo(chiakiGuiGames) << "Steam exists:" << steamExists;
-    
-    if (!steamExists) {
-        qCWarning(chiakiGuiGames) << "Steam does not exist, cannot create shortcut";
-        if (cb.isCallable())
-            cb.call({QString("[E] Steam does not exist, cannot create Steam Shortcut"), false, true});
-        
-        // Clean up artwork
-        for (auto it = artwork.begin(); it != artwork.end(); ++it) {
-            delete it.value();
-        }
-        delete steam_tools;
-        return;
+
+    SteamShortcutOutcome outcome = SteamShortcutWriter::write(steamDir, gameName, executable, launch_options, artwork, infoLambda);
+
+    for (auto it = artwork.begin(); it != artwork.end(); ++it) {
+        delete it.value();
     }
-    
-    // Get executable path
-    QString executable = QCoreApplication::applicationFilePath();
-    qCInfo(chiakiGuiGames) << "Application executable path:" << executable;
-    
-    #ifdef Q_OS_LINUX
-        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        // In a Flatpak sandbox applicationFilePath() is /app/bin/... which doesn't
-        // exist on the host; Steam must invoke the host's flatpak command instead
-        // (same as QmlBackend::getExecutable())
-        if (!env.value("FLATPAK_ID").isEmpty()) {
-            executable = QStringLiteral("flatpak");
-        } else if (env.contains("APPIMAGE")) {
-            executable = env.value("APPIMAGE");
-            qCInfo(chiakiGuiGames) << "Running as AppImage, using:" << executable;
-        }
-    #endif
-    
-    // Check for Flatpak
-    if (executable == "flatpak") {
-        const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        QString flatpakId = env.value("FLATPAK_ID");
-        launch_options.prepend(QString("run %1 ").arg(flatpakId));
-        qCInfo(chiakiGuiGames) << "Running as Flatpak, updated launch options:" << launch_options;
-    }
-    
-    // If running from extracted pylux directory, use launch.sh instead of direct executable
-    // The launch.sh script sets up proper library paths for Steam runtime compatibility
-    if (executable != "flatpak" && !executable.endsWith(".AppImage"))
-    {
-        QFileInfo exeInfo(executable);
-        QString exePath = exeInfo.absoluteFilePath();
-        
-        // Check if we're running from pylux/linux/pylux/usr/bin/chiaki structure
-        // If so, use pylux/linux/pylux/launch.sh instead
-        if (exePath.contains("/usr/bin/"))
-        {
-            QDir exeDir(exeInfo.absolutePath());
-            // Go up from usr/bin to usr, then to pylux (inner directory)
-            // Structure: .../pylux/linux/pylux/usr/bin/chiaki -> .../pylux/linux/pylux/launch.sh
-            if (exeDir.cdUp() && exeDir.cdUp())
-            {
-                QString launchScript = exeDir.absoluteFilePath("launch.sh");
-                if (QFile::exists(launchScript))
-                {
-                    qCInfo(chiakiGuiGames) << "Using launch.sh for game Steam shortcut:" << launchScript;
-                    executable = launchScript;
-                }
-            }
-        }
-    }
-    
-    // Build the shortcut
-    qCInfo(chiakiGuiGames) << "Building shortcut entry...";
-    QString shortcut_name = gameName;
-    SteamShortcutEntry newShortcut = steam_tools->buildShortcutEntry(
-        std::move(shortcut_name), 
-        std::move(executable), 
-        std::move(launch_options), 
-        std::move(artwork)
-    );
-    qCInfo(chiakiGuiGames) << "Shortcut entry built successfully";
-    
-    // Parse existing shortcuts
-    qCInfo(chiakiGuiGames) << "Parsing existing shortcuts...";
-    QVector<SteamShortcutEntry> shortcuts = steam_tools->parseShortcuts();
-    qCInfo(chiakiGuiGames) << "Found" << shortcuts.size() << "existing shortcuts";
-    
-    bool found = false;
-    
-    // Check if shortcut already exists
-    qCInfo(chiakiGuiGames) << "Checking if shortcut already exists...";
-    for (int i = 0; i < shortcuts.size(); ++i) {
-        if (shortcuts[i].getAppName() == newShortcut.getAppName()) {
-            qCInfo(chiakiGuiGames) << "Found existing shortcut at index" << i << ", updating...";
-            infoLambda(QString("[I] Updating existing shortcut for %1").arg(newShortcut.getAppName()));
-            shortcuts[i] = newShortcut;
-            found = true;
-            break;
-        }
-    }
-    
-    if (!found) {
-        qCInfo(chiakiGuiGames) << "No existing shortcut found, adding new one";
-        infoLambda(QString("[I] Adding new shortcut for %1").arg(newShortcut.getAppName()));
-        shortcuts.append(newShortcut);
-    }
-    
-    // Update shortcuts
-    qCInfo(chiakiGuiGames) << "Updating shortcuts file with" << shortcuts.size() << "total shortcuts...";
-    steam_tools->updateShortcuts(shortcuts);
-    qCInfo(chiakiGuiGames) << "Shortcuts updated successfully";
-    
-    // Update controller config for Steam Deck
-    QString controller_layout_workshop_id = "3049833406";
-    qCInfo(chiakiGuiGames) << "Updating Steam Deck controller config with workshop ID:" << controller_layout_workshop_id;
-    try {
-        steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
-    } catch (const std::exception& e) {
-        qCWarning(chiakiGuiGames) << "Failed to update Steam controller config:" << e.what();
-    }
-    
-    infoLambda("[I] Successfully created Steam shortcut!");
-    infoLambda("");
-    infoLambda("══════════════════════════════════════════════════════");
-    infoLambda("✓ SHORTCUT CREATED SUCCESSFULLY!");
-    infoLambda("══════════════════════════════════════════════════════");
-    infoLambda("");
-    infoLambda(QString("→ Game: %1").arg(gameName));
-    infoLambda("");
-    infoLambda("⚠ IMPORTANT: Please restart Steam for the shortcut to appear!");
-    infoLambda("");
+
+    qCInfo(chiakiGuiGames) << "createGameSteamShortcut:" << (outcome.ok ? "ok" : "failed") << outcome.message;
     if (cb.isCallable())
-        cb.call({QString("✓ Steam shortcut created for %1").arg(gameName), true, true});
-    
-    // Clean up
-    qCInfo(chiakiGuiGames) << "Cleaning up SteamTools...";
-    delete steam_tools;
-    qCInfo(chiakiGuiGames) << "=== CREATE STEAM SHORTCUT END ===";
+        cb.call({outcome.message, outcome.ok, true});
 
 #endif // CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 }

@@ -51,7 +51,7 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
     if (npssoToken.isEmpty()) {
         qWarning() << "NPSSO token is empty - cloud play may not work";
     } else {
-        qInfo() << "Using NPSSO:" << npssoToken.left(20) << "...";
+        qInfo() << "NPSSO token present (" << npssoToken.size() << "chars)";
     }
 
     // Normalize service type to lowercase

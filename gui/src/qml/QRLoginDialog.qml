@@ -74,7 +74,7 @@ DialogView {
         statusLabel.visible = true;
         
         Chiaki.checkPyluxStatus(qrCode, function(success, errorMsg, npssoToken) {
-            console.log("pylux API response - success:", success, "error:", errorMsg, "npsso:", npssoToken);
+            console.log("pylux API response - success:", success, "error:", errorMsg, "npsso:", npssoToken ? "received" : "none");
             
             isCheckingStatus = false;
             
