@@ -1,3 +1,4 @@
+#include <type_traits>
 #include "qmlmainwindow.h"
 #include "qmlbackend.h"
 #include "cloudstreamingbackend.h"
@@ -1138,7 +1139,9 @@ void QmlMainWindow::render()
         const struct pl_frame *frames[] = { &previous_frame, &current_frame, };
         const uint64_t sig = QDateTime::currentMSecsSinceEpoch();
         const uint64_t signatures[] = { sig, sig + 1 };
-        const float timestamps[] = { -0.5, 0.5 };
+        // libplacebo 7.387 changed pl_frame_mix::timestamps from float to double.
+        using mix_timestamp_t = std::remove_const_t<std::remove_pointer_t<decltype(pl_frame_mix::timestamps)>>;
+        const mix_timestamp_t timestamps[] = { -0.5, 0.5 };
         struct pl_frame_mix frame_mix = {
             .num_frames = 2,
             .frames = frames,
