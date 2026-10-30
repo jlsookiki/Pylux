@@ -124,6 +124,6 @@ SteamShortcutOutcome SteamShortcutWriter::write(const QString &steamDir, const Q
 		out.message += " Steam is running right now and keeps its own copy of the library, so it may discard this change when it exits. "
 					   "For a sure result on Steam Deck, add shortcuts from Desktop Mode with Steam closed.";
 	else
-		out.message += " It appears after Steam restarts.";
+		out.message += " Restart Steam to see it. If it is still missing, Steam was open and kept its own copy of the library; add it again with Steam closed.";
 	return out;
 }
