@@ -1,0 +1,46 @@
+name: Build Flatpak bundle (artifact)
+
+# Builds the x86_64 Flatpak from the pushed branch and attaches it to the
+# run as a downloadable artifact, for sideloading onto a Steam Deck. Unlike
+# deploy-flatpak.yml this needs no Dropbox or store credentials.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'fix/**'
+      - 'feature/**'
+
+concurrency:
+  group: flatpak-bundle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    name: Flatpak bundle (x86_64)
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
+      options: --privileged
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Patch manifest to build from this checkout
+        run: |
+          sed -i '/^  - name: pylux/,/^  - name:\|^$/{
+            s|      - type: git|      - type: dir|
+            s|        url:.*|        path: ../../|
+            /commit:/d
+          }' scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux.yml
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: pylux-x64.flatpak
+          manifest-path: scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux.yml
+          branch: stable
+          cache-key: flatpak-builder-${{ github.sha }}
+          arch: x86_64
+          upload-artifact: "true"
