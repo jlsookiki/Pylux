@@ -278,7 +278,7 @@ bool SteamTools::backupFile(const QString &path, const QString &prefix, int keep
 	if(!info.exists())
 		return true;
 	QDir dir = info.dir();
-	const QString stamp = QDateTime::currentDateTime().toString("yyyy-MM-dd-HH-mm-ss");
+	const QString stamp = QDateTime::currentDateTime().toString("yyyy-MM-dd-HH-mm-ss-zzz");
 	const QString backup = dir.filePath(QString("%1.%2.bak").arg(prefix, stamp));
 	QFile::remove(backup);
 	if(!QFile::copy(path, backup))
