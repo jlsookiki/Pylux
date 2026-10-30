@@ -21,6 +21,8 @@ add_library(cpp-steam-tools SHARED
 	src/steamshortcutentry.cpp
 	include/steamtools.h
 	src/steamtools.cpp
+	include/shortcutmatch.h
+	src/shortcutmatch.cpp
 )
 
 target_include_directories(cpp-steam-tools

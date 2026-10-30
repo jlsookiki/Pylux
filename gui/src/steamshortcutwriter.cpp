@@ -1,5 +1,6 @@
 #include "steamshortcutwriter.h"
 
+#include "shortcutmatch.h"
 #include "steamtools.h"
 
 #include <QCoreApplication>
@@ -92,7 +93,8 @@ SteamShortcutOutcome SteamShortcutWriter::write(const QString &steamDir, const Q
 
 	if(index >= 0)
 	{
-		entries[index] = entry;
+		entries[index] = ShortcutMatch::merge(entries[index], entry);
+		entry = entries[index];
 		out.updatedExisting = true;
 	}
 	else
