@@ -297,6 +297,11 @@ build_for_arch() {
     
     # Configure (matching GitHub Actions exactly)
     # PYLUX_EXTRA_CMAKE_ARGS: e.g. macos/build-appstore.sh sets -DCHIAKI_ENABLE_STEAM_SHORTCUT=OFF
+    # The code targets FFmpeg 7; prefer the versioned keg when it is installed.
+    # Must be exported before configure: FindFFMPEG records include dirs via pkg-config.
+    FFMPEG_PREFIX="$(brew --prefix --installed ffmpeg@7 2>/dev/null || brew --prefix ffmpeg)"
+    export CPATH="$FFMPEG_PREFIX/include"
+    export PKG_CONFIG_PATH="$FFMPEG_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     cmake -S "$REPO_ROOT" -B "$REPO_ROOT/$build_dir" -G "Ninja" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCHIAKI_ENABLE_CLI=OFF \
@@ -308,10 +313,6 @@ build_for_arch() {
         ${PYLUX_EXTRA_CMAKE_ARGS:-}
     
     # Build (matching GitHub Actions exactly)
-    # The code targets FFmpeg 7; prefer the versioned keg when it is installed.
-    FFMPEG_PREFIX="$(brew --prefix ffmpeg@7 2>/dev/null || brew --prefix ffmpeg)"
-    export CPATH="$FFMPEG_PREFIX/include"
-    export PKG_CONFIG_PATH="$FFMPEG_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     cmake --build "$REPO_ROOT/$build_dir" --config Release --clean-first --target chiaki
     
     echo ""
@@ -499,11 +500,12 @@ if [ "$ITERATE" = "true" ]; then
 
     echo "=== Iterate: incremental build for $ARCH ==="
     # Sync the App Store flag with the CMake cache so --iterate respects --appstore / no --appstore
-    cmake -B "$REPO_ROOT/$build_dir" -DCHIAKI_IS_MAC_APPSTORE="$MAC_APPSTORE"
     # The code targets FFmpeg 7; prefer the versioned keg when it is installed.
-    FFMPEG_PREFIX="$(brew --prefix ffmpeg@7 2>/dev/null || brew --prefix ffmpeg)"
+    # Must be exported before configure: FindFFMPEG records include dirs via pkg-config.
+    FFMPEG_PREFIX="$(brew --prefix --installed ffmpeg@7 2>/dev/null || brew --prefix ffmpeg)"
     export CPATH="$FFMPEG_PREFIX/include"
     export PKG_CONFIG_PATH="$FFMPEG_PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    cmake -B "$REPO_ROOT/$build_dir" -DCHIAKI_IS_MAC_APPSTORE="$MAC_APPSTORE"
     cmake --build "$REPO_ROOT/$build_dir" --config Release --target chiaki
 
     echo "=== Iterate: updating app bundle ==="
