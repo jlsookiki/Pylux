@@ -46,7 +46,7 @@ QString SteamShortcutWriter::resolveExecutable(QString &launchOptions)
 
 QString SteamShortcutWriter::profileOption(const QString &profile)
 {
-	return profile.isEmpty() ? QString() : QString("--profile=%1 ").arg(profile);
+	return profile.isEmpty() ? QString() : QString("--profile=%1 ").arg(SteamTools::quoteArgument(profile));
 }
 
 SteamShortcutOutcome SteamShortcutWriter::write(const QString &steamDir, const QString &appName, const QString &executable,

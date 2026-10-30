@@ -49,6 +49,9 @@ public:
 	// Deck, or any "non-Steam game" launch). Steam is then certainly
 	// running and holds its own copy of shortcuts.vdf in memory.
 	static bool launchedFromSteam();
+	// Wraps a value for Steam's LaunchOptions, which Steam splits like a
+	// shell: "Living Room" must arrive as one argument.
+	static QString quoteArgument(const QString &value);
 	static QString defaultSteamBaseDir();
 
 private:

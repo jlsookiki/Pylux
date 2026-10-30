@@ -58,6 +58,14 @@ bool SteamTools::launchedFromSteam()
 	return envOrEmpty("XDG_CURRENT_DESKTOP").compare("gamescope", Qt::CaseInsensitive) == 0;
 }
 
+QString SteamTools::quoteArgument(const QString &value)
+{
+	QString escaped = value;
+	escaped.replace('\\', "\\\\");
+	escaped.replace('"', "\\\"");
+	return "\"" + escaped + "\"";
+}
+
 bool SteamTools::steamExists() const
 {
 	return QDir(steamBaseDir).exists();
