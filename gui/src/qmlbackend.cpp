@@ -2637,6 +2637,16 @@ void QmlBackend::ensurePyluxSteamShortcut(const QJSValue &callback)
                                            : QStringLiteral("Pylux %1").arg(profile);
     const QString launchOptions = SteamShortcutWriter::profileOption(profile).trimmed();
 
+    // Steam started us, so it holds its own copy of shortcuts.vdf and may
+    // write it back over ours when it exits. A silent write here would then
+    // vanish and the "added" dialog would come back every session. Adding
+    // from Desktop Mode with Steam closed is the reliable path.
+    if (SteamTools::launchedFromSteam()) {
+        qCInfo(chiakiGui) << "Launched from Steam; not adding Pylux to the Steam library automatically";
+        done(false);
+        return;
+    }
+
     auto noop = [](const QString &) {};
     SteamTools steam(noop, noop, QString());
     if (!steam.steamExists() || !steam.hasUser()) {
