@@ -205,8 +205,6 @@ static bool is_plus_catalog_list(const char *list)
 		|| strcmp(list, "plus-monthly-games-list") == 0);
 }
 
-// productId stable key: drop last token of the dash/underscore split, join with '|'.
-// Writes into out (>=128). Returns out (empty if <2 tokens).
 // PSN product ids are "<vendor>-<title>_<nn>-<sku>", e.g.
 // "HP6545-PPSA23226_00-GAME000000000000". The trophy API is keyed by the
 // middle segment ("PPSA23226_00"); entitlement ids share the shape.
@@ -234,6 +232,8 @@ CHIAKI_EXPORT const char *chiaki_cloud_title_id_from_product_id(const char *prod
 	return out;
 }
 
+// productId stable key: drop last token of the dash/underscore split, join with '|'.
+// Writes into out (>=128). Returns out (empty if <2 tokens).
 const char *cc_stable_key(const char *product_id, char *out, size_t out_sz)
 {
 	out[0] = 0;
