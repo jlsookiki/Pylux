@@ -28,6 +28,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *au
 	audio_receiver->frame_index_prev_valid = false;
 	audio_receiver->frame_index_startup = true;
 	audio_receiver->pscloud_audio_reassembler = NULL;
+	audio_receiver->pscloud_layout_logged = false;
 
 	ChiakiErrorCode err = chiaki_mutex_init(&audio_receiver->mutex, false);
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -106,11 +107,14 @@ CHIAKI_EXPORT void chiaki_audio_receiver_av_packet(ChiakiAudioReceiver *audio_re
 		return;
 	}
 
-	// PSCLOUD uses unitized format: one unit per AV packet, units_in_frame_fec is literal FEC count
+	// PSCLOUD streams use either the unitized layout (one unit per AV packet,
+	// reassembled here) or the Remote Play layout (whole generation per packet,
+	// handled below). See chiaki_takion_av_packet_audio_is_unitized.
 	bool is_pscloud = audio_receiver->session
 		&& audio_receiver->session->service_type == CHIAKI_SERVICE_TYPE_PSCLOUD;
 
-	if(is_pscloud && audio_receiver->pscloud_audio_reassembler)
+	if(is_pscloud && audio_receiver->pscloud_audio_reassembler
+		&& chiaki_takion_av_packet_audio_is_unitized(packet))
 	{
 		ChiakiPSCLOUDAudioReassembler *reassembler = (ChiakiPSCLOUDAudioReassembler *)audio_receiver->pscloud_audio_reassembler;
 		ChiakiErrorCode err = chiaki_pscloud_audio_reassembler_put_packet(
@@ -120,6 +124,15 @@ CHIAKI_EXPORT void chiaki_audio_receiver_av_packet(ChiakiAudioReceiver *audio_re
 			CHIAKI_LOGW(audio_receiver->log, "PSCLOUD audio reassembler error: %d", (int)err);
 		}
 		return;
+	}
+
+	if(is_pscloud && !audio_receiver->pscloud_layout_logged)
+	{
+		audio_receiver->pscloud_layout_logged = true;
+		CHIAKI_LOGI(audio_receiver->log, "PSCLOUD audio uses the Remote Play packet layout (unit size %u, %u source + %u fec)",
+			(unsigned)chiaki_takion_av_packet_audio_unit_size(packet),
+			(unsigned)chiaki_takion_av_packet_audio_source_units_count(packet),
+			(unsigned)chiaki_takion_av_packet_audio_fec_units_count(packet));
 	}
 
 	// this is mostly observation-based, so may not necessarily cover everything yet.

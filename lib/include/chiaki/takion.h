@@ -58,6 +58,20 @@ static inline uint8_t chiaki_takion_av_packet_audio_unit_size(ChiakiTakionAVPack
 static inline uint8_t chiaki_takion_av_packet_audio_source_units_count(ChiakiTakionAVPacket *packet)	{ return packet->units_in_frame_fec & 0xf; }
 static inline uint8_t chiaki_takion_av_packet_audio_fec_units_count(ChiakiTakionAVPacket *packet)		{ return (packet->units_in_frame_fec >> 4) & 0xf; }
 
+/**
+ * PS5 cloud (PSCLOUD) audio arrives in one of two layouts. In the layout
+ * the PlayStation Portal client was reverse-engineered from, each AV packet
+ * carries one unit and units_in_frame_fec is the literal FEC unit count. In
+ * the layout shared with PS5 Remote Play, one AV packet carries the whole
+ * generation and units_in_frame_fec packs unit size, source count and FEC
+ * count into nibbles, so its value is far larger than any unit total.
+ * A literal FEC count can never exceed the total; a packed value always does.
+ */
+static inline bool chiaki_takion_av_packet_audio_is_unitized(ChiakiTakionAVPacket *packet)
+{
+	return packet->units_in_frame_fec <= packet->units_in_frame_total;
+}
+
 typedef ChiakiErrorCode (*ChiakiTakionAVPacketParse)(ChiakiTakionAVPacket *packet, ChiakiKeyState *key_state, uint8_t *buf, size_t buf_size);
 
 typedef struct chiaki_takion_congestion_packet_t

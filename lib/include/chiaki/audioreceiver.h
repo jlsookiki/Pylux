@@ -37,6 +37,7 @@ typedef struct chiaki_audio_receiver_t
 	bool frame_index_startup; // whether frame_index_prev has definitely not wrapped yet
 	ChiakiPacketStats *packet_stats;
 	void *pscloud_audio_reassembler; // Opaque pointer to ChiakiPSCLOUDAudioReassembler (PSCLOUD only)
+	bool pscloud_layout_logged; // the one-time note about a PSCLOUD stream using the Remote Play layout
 } ChiakiAudioReceiver;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *audio_receiver, struct chiaki_session_t *session, ChiakiPacketStats *packet_stats);
