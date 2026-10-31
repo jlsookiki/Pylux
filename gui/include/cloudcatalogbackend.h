@@ -132,7 +132,7 @@ private:
 
     // Helper methods for shortcut creation
     QPixmap downloadImageFromUrl(const QString &url, int timeoutMs = 10000);
-    QPixmap resizeImageToFit(const QPixmap &source, int targetWidth, int targetHeight);
+    void removeStalePyluxLogo(const QString &gameName, const QString &steamDir);
 };
 
 #endif // CLOUDCATALOGBACKEND_H

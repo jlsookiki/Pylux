@@ -4,6 +4,7 @@
 #ifdef CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 #include "steamtools.h"
 #include "steamshortcutwriter.h"
+#include "steamartwork.h"
 #endif
 #include <chiaki/cloudcatalog.h>
 #include <chiaki/log.h>
@@ -499,8 +500,23 @@ QJsonObject CloudCatalogBackend::extractGameImages(const QJsonObject &gameData)
         }
     }
     
+    // 16:9 screenshots are the only wide art this API offers; they make the
+    // Steam hero banner where the square cover would be letterboxed.
+    QJsonArray screenshots;
+    if (gameData.contains("mediaList") && gameData["mediaList"].isObject()) {
+        const QJsonArray shots = gameData["mediaList"].toObject()["screenshots"].toArray();
+        for (const QJsonValue &shot : shots) {
+            const QString url = shot.toObject()["url"].toString();
+            if (!url.isEmpty())
+                screenshots.append(url);
+            if (screenshots.size() >= 3)
+                break;
+        }
+    }
+
     images["cover"] = coverUrl;
     images["landscape"] = landscapeUrl;
+    images["screenshots"] = screenshots;
     
     return images;
 }
@@ -788,68 +804,38 @@ QPixmap CloudCatalogBackend::downloadImageFromUrl(const QString &url, int timeou
     return pixmap;
 }
 
-QPixmap CloudCatalogBackend::resizeImageToFit(const QPixmap &source, int targetWidth, int targetHeight)
+// Earlier builds wrote Pylux's own logo into Steam's grid folder for every
+// game, which showed a "P" where the game's name belongs. The file persists
+// across re-adds, so remove it when it is byte-for-byte that asset.
+void CloudCatalogBackend::removeStalePyluxLogo(const QString &gameName, const QString &steamDir)
 {
-    // Return empty pixmap if source is null/empty (graceful handling)
-    if (source.isNull() || source.width() == 0 || source.height() == 0) {
-        return QPixmap();
-    }
-    
-    // Create heavily blurred background using multiple-pass downscale/upscale technique
-    // First, scale to fill the target dimensions (stretched)
-    QPixmap stretched = source.scaled(targetWidth, targetHeight, 
-                                      Qt::IgnoreAspectRatio, 
-                                      Qt::SmoothTransformation);
-    
-    // Create extreme blur effect with multiple passes for smooth result
-    // Pass 1: Aggressive downscale for extreme blur
-    int blurSize1 = qMax(targetWidth, targetHeight) / 80;  // Very small for extreme blur
-    QPixmap downscaled1 = stretched.scaled(blurSize1, blurSize1, 
-                                           Qt::IgnoreAspectRatio, 
-                                           Qt::SmoothTransformation);
-    
-    // Pass 2: Intermediate upscale for smoother blur
-    int blurSize2 = qMax(targetWidth, targetHeight) / 40;
-    QPixmap intermediate = downscaled1.scaled(blurSize2, blurSize2, 
-                                              Qt::IgnoreAspectRatio, 
-                                              Qt::SmoothTransformation);
-    
-    // Pass 3: Another intermediate pass for extra smoothness
-    int blurSize3 = qMax(targetWidth, targetHeight) / 20;
-    QPixmap intermediate2 = intermediate.scaled(blurSize3, blurSize3, 
-                                                Qt::IgnoreAspectRatio, 
-                                                Qt::SmoothTransformation);
-    
-    // Final upscale to target size
-    QPixmap blurredBackground = intermediate2.scaled(targetWidth, targetHeight, 
-                                                     Qt::IgnoreAspectRatio, 
-                                                     Qt::SmoothTransformation);
-    
-    // Darken the background extremely for minimal distraction
-    QPainter bgPainter(&blurredBackground);
-    bgPainter.setCompositionMode(QPainter::CompositionMode_Darken);
-    bgPainter.fillRect(blurredBackground.rect(), QColor(0, 0, 0, 210));  // ~90% darker, nearly black
-    bgPainter.end();
-    
-    // Scale source maintaining aspect ratio for the centered foreground
-    QPixmap scaled = source.scaled(targetWidth, targetHeight, 
-                                    Qt::KeepAspectRatio, 
-                                    Qt::SmoothTransformation);
-    
-    // Calculate position to center the scaled image
-    int x = (targetWidth - scaled.width()) / 2;
-    int y = (targetHeight - scaled.height()) / 2;
-    
-    // Draw scaled image centered on blurred background
-    QPainter painter(&blurredBackground);
-    painter.drawPixmap(x, y, scaled);
-    painter.end();
-    
-    qInfo() << "Resized image from" << source.size() 
-           << "to" << blurredBackground.size() 
-           << "(scaled:" << scaled.size() << ", with blurred background)";
-    
-    return blurredBackground;
+#if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
+    auto noop = [](const QString &) {};
+    SteamTools steam(noop, noop, steamDir);
+    if (!steam.hasUser())
+        return;
+    QString launchOptions;
+    const QString exe = "\"" + SteamShortcutWriter::resolveExecutable(launchOptions) + "\"";
+    const QString logoPath = QString("%1/userdata/%2/config/grid/%3_logo.png")
+        .arg(steam.steamDir(), steam.userId(), steam.generateShortAppId(exe, gameName));
+    QFile logo(logoPath);
+    if (!logo.exists() || !logo.open(QIODevice::ReadOnly))
+        return;
+    const QByteArray onDisk = logo.readAll();
+    logo.close();
+    QFile asset(":/icons/steam_logo.png");
+    if (!asset.open(QIODevice::ReadOnly))
+        return;
+    const QByteArray bundled = asset.readAll();
+    QImage a, b;
+    a.loadFromData(onDisk);
+    b.loadFromData(bundled);
+    if (!a.isNull() && a == b && logo.remove())
+        qInfo() << "Removed stale Pylux logo" << logoPath;
+#else
+    Q_UNUSED(gameName);
+    Q_UNUSED(steamDir);
+#endif
 }
 
 void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier, const QString &gameName, 
@@ -921,92 +907,50 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     QJsonObject gameData = doc.object();
     QJsonObject extractedImages = gameData["extracted_images"].toObject();
     
-    QString coverUrl = extractedImages["cover"].toString();
-    QString landscapeUrl = extractedImages["landscape"].toString();
-    
-    qInfo() << "Cover URL:" << coverUrl;
-    qInfo() << "Landscape URL:" << landscapeUrl;
-    
-    // Download images
-    infoLambda("[I] Downloading hero image...");
-    QPixmap hero;
-    if (!landscapeUrl.isEmpty()) {
-        hero = downloadImageFromUrl(landscapeUrl);
-    }
-    if (hero.isNull() && !coverUrl.isEmpty()) {
-        hero = downloadImageFromUrl(coverUrl);
-    }
-    if (!hero.isNull()) {
-        infoLambda("[I] Resizing hero image to 1920x620...");
-        hero = resizeImageToFit(hero, 1920, 620);
-    }
-    
-    infoLambda("[I] Downloading landscape image...");
-    QPixmap landscape;
-    if (!landscapeUrl.isEmpty()) {
-        landscape = downloadImageFromUrl(landscapeUrl);
-    }
-    if (landscape.isNull() && !coverUrl.isEmpty()) {
-        landscape = downloadImageFromUrl(coverUrl);
-    }
-    if (!landscape.isNull()) {
-        infoLambda("[I] Resizing landscape image to 920x430...");
-        landscape = resizeImageToFit(landscape, 920, 430);
-    }
-    
-    infoLambda("[I] Downloading portrait image...");
-    QPixmap portrait;
-    if (!coverUrl.isEmpty()) {
-        portrait = downloadImageFromUrl(coverUrl);
-    }
-    if (!portrait.isNull()) {
-        infoLambda("[I] Resizing portrait image to 600x900...");
-        portrait = resizeImageToFit(portrait, 600, 900);
-    }
-    
-    // Load fixed assets
-    qInfo() << "Loading fixed assets...";
-    QPixmap icon(":/icons/game_shortcut_icon.png");
-    // Same Pylux logo the app-level startup shortcut uses (the old game_shortcut_logo.png
-    // still carried PS Stream branding)
-    QPixmap logo(":/icons/steam_logo.png");
-    
-    if (icon.isNull()) {
-        qWarning() << "Failed to load game shortcut icon, using fallback";
-        icon = QPixmap(":/icons/steam_icon.png");
-    }
-    if (logo.isNull())
-        qWarning() << "Failed to load game shortcut logo";
+    const QString coverUrl = extractedImages["cover"].toString();
+    const QString landscapeUrl = extractedImages["landscape"].toString();
+    QStringList wideUrls;
+    for (const QJsonValue &v : extractedImages["screenshots"].toArray())
+        wideUrls << v.toString();
+    if (!landscapeUrl.isEmpty())
+        wideUrls << landscapeUrl;
 
-    // Create artwork map
+    infoLambda("[I] Downloading cover...");
+    QPixmap cover;
+    if (!coverUrl.isEmpty())
+        cover = downloadImageFromUrl(coverUrl);
+
+    infoLambda("[I] Downloading a screenshot for the banner...");
+    QPixmap wide;
+    for (const QString &url : wideUrls) {
+        wide = downloadImageFromUrl(url);
+        if (!wide.isNull())
+            break;
+    }
+
     QMap<QString, const QPixmap*> artwork;
-    
-    if (landscape.isNull()) {
-        auto fallback = QPixmap(":/icons/steam_landscape.png");
-        artwork.insert("landscape", new QPixmap(fallback));
+    if (!cover.isNull()) {
+        const QMap<QString, QPixmap> composed = SteamArtwork::compose(cover, wide);
+        for (auto it = composed.cbegin(); it != composed.cend(); ++it)
+            artwork.insert(it.key(), new QPixmap(it.value()));
+        if (wide.isNull())
+            infoLambda("[I] No screenshot available; the banner is built from the cover.");
     } else {
-        artwork.insert("landscape", new QPixmap(landscape));
-    }
-    
-    if (portrait.isNull()) {
-        auto fallback = QPixmap(":/icons/steam_portrait.png");
-        artwork.insert("portrait", new QPixmap(fallback));
-    } else {
-        artwork.insert("portrait", new QPixmap(portrait));
-    }
-    
-    if (hero.isNull()) {
+        // Nothing usable from the store: fall back to Pylux's generic art
+        // so the tile is at least recognisable as a Pylux shortcut.
+        infoLambda("[I] No store artwork available; using the generic Pylux tile art.");
         QImageReader reader;
         reader.setAllocationLimit(512);
         reader.setFileName(":/icons/steam_hero.png");
-        auto fallback = QPixmap::fromImageReader(&reader);
-        artwork.insert("hero", new QPixmap(fallback));
-    } else {
-        artwork.insert("hero", new QPixmap(hero));
+        artwork.insert("hero", new QPixmap(QPixmap::fromImageReader(&reader)));
+        artwork.insert("landscape", new QPixmap(QPixmap(":/icons/steam_landscape.png")));
+        artwork.insert("portrait", new QPixmap(QPixmap(":/icons/steam_portrait.png")));
+        artwork.insert("icon", new QPixmap(QPixmap(":/icons/game_shortcut_icon.png")));
     }
-    
-    artwork.insert("icon", new QPixmap(icon));
-    artwork.insert("logo", new QPixmap(logo));
+    // No logo on purpose: Steam then prints the game's name over the banner.
+    // Earlier versions saved the Pylux logo as every game's logo; drop that
+    // file if it is still there so the name shows instead.
+    removeStalePyluxLogo(gameName, steamDir);
     
     // Build launch options based on command
     QString escaped_identifier = gameIdentifier;
@@ -1039,5 +983,4 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
 
 #endif // CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 }
-
 

@@ -23,6 +23,8 @@ add_library(cpp-steam-tools SHARED
 	src/steamtools.cpp
 	include/shortcutmatch.h
 	src/shortcutmatch.cpp
+	include/steamartwork.h
+	src/steamartwork.cpp
 )
 
 target_include_directories(cpp-steam-tools
@@ -52,6 +54,9 @@ if(CPP_STEAM_TOOLS_TESTS OR CHIAKI_ENABLE_TESTS)
 	add_executable(cpp-steam-tools-test-steamtools-dir tests/test_steamtools_dir.cpp)
 	target_link_libraries(cpp-steam-tools-test-steamtools-dir PRIVATE cpp-steam-tools Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
 	add_test(NAME cpp-steam-tools-steamtools-dir COMMAND cpp-steam-tools-test-steamtools-dir)
+	add_executable(cpp-steam-tools-test-artwork tests/test_steamartwork.cpp)
+	target_link_libraries(cpp-steam-tools-test-artwork PRIVATE cpp-steam-tools Qt${QT_VERSION_MAJOR}::Gui)
+	add_test(NAME cpp-steam-tools-artwork COMMAND cpp-steam-tools-test-artwork)
 	add_executable(cpp-steam-tools-inspect tests/inspect_steam.cpp)
 	target_link_libraries(cpp-steam-tools-inspect PRIVATE cpp-steam-tools Qt${QT_VERSION_MAJOR}::Gui)
 endif()
