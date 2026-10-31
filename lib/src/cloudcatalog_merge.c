@@ -207,6 +207,33 @@ static bool is_plus_catalog_list(const char *list)
 
 // productId stable key: drop last token of the dash/underscore split, join with '|'.
 // Writes into out (>=128). Returns out (empty if <2 tokens).
+// PSN product ids are "<vendor>-<title>_<nn>-<sku>", e.g.
+// "HP6545-PPSA23226_00-GAME000000000000". The trophy API is keyed by the
+// middle segment ("PPSA23226_00"); entitlement ids share the shape.
+CHIAKI_EXPORT const char *chiaki_cloud_title_id_from_product_id(const char *product_id, char *out, size_t out_sz)
+{
+	if(out_sz == 0)
+		return out;
+	out[0] = 0;
+	if(!product_id || !*product_id)
+		return out;
+	const char *first = strchr(product_id, '-');
+	if(!first)
+		return out;
+	const char *start = first + 1;
+	const char *end = strchr(start, '-');
+	if(!end)
+		end = start + strlen(start);
+	size_t len = (size_t)(end - start);
+	// A title id has an underscore before its two-digit suffix; anything
+	// else in that slot is not one.
+	if(len == 0 || len >= out_sz || !memchr(start, '_', len))
+		return out;
+	memcpy(out, start, len);
+	out[len] = 0;
+	return out;
+}
+
 const char *cc_stable_key(const char *product_id, char *out, size_t out_sz)
 {
 	out[0] = 0;

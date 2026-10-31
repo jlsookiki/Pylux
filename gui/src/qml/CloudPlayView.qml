@@ -1228,6 +1228,10 @@ Pane {
                             // gameIdentifier (entitlementId) is used for the launch command
                             cloudShortcutDialog.showCloudDialog(gameName, gameIdentifier, serviceType, command, productId);
                         }
+
+                        onViewTrophies: (npTitleId) => {
+                            trophyDialog.showTrophies(npTitleId)
+                        }
                     }
                     
                     Keys.onPressed: (event) => {
@@ -1401,6 +1405,20 @@ Pane {
         }
     }
     
+    // Trophies for a cloud title, same dialog the console games view uses
+    TrophyListDialog {
+        id: trophyDialog
+        anchors.centerIn: parent
+
+        onClosed: {
+            Qt.callLater(() => {
+                if (gamesGrid.count > 0) {
+                    gamesGrid.forceActiveFocus(Qt.TabFocusReason)
+                }
+            })
+        }
+    }
+
     // Cloud Shortcut Dialog (reusing GameShortcutDialog)
     GameShortcutDialog {
         id: cloudShortcutDialog

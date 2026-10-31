@@ -470,7 +470,31 @@ static MunitResult test_stable_key(const MunitParameter params[], void *user)
 	return MUNIT_OK;
 }
 
+static MunitResult test_title_id_from_product_id(const MunitParameter params[], void *user)
+{
+	(void)params; (void)user;
+	char out[32];
+	munit_assert_string_equal(
+		chiaki_cloud_title_id_from_product_id("HP6545-PPSA23226_00-GAME000000000000", out, sizeof(out)),
+		"PPSA23226_00");
+	munit_assert_string_equal(
+		chiaki_cloud_title_id_from_product_id("UP9000-CUSA00552_00-GODOFWAR3HDGAME0", out, sizeof(out)),
+		"CUSA00552_00");
+	// No sku segment: still the middle part.
+	munit_assert_string_equal(chiaki_cloud_title_id_from_product_id("UP9000-CUSA00552_00", out, sizeof(out)), "CUSA00552_00");
+	// Not a title id in that slot, a bare title id, or nothing at all.
+	munit_assert_string_equal(chiaki_cloud_title_id_from_product_id("A-B-C", out, sizeof(out)), "");
+	munit_assert_string_equal(chiaki_cloud_title_id_from_product_id("PPSA23226_00", out, sizeof(out)), "");
+	munit_assert_string_equal(chiaki_cloud_title_id_from_product_id("", out, sizeof(out)), "");
+	munit_assert_string_equal(chiaki_cloud_title_id_from_product_id(NULL, out, sizeof(out)), "");
+	// Too small a buffer is refused rather than truncated.
+	char tiny[4];
+	munit_assert_string_equal(chiaki_cloud_title_id_from_product_id("HP6545-PPSA23226_00-X", tiny, sizeof(tiny)), "");
+	return MUNIT_OK;
+}
+
 MunitTest tests_cloudcatalog_merge[] = {
+	{ "/title_id_from_product_id", test_title_id_from_product_id, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/apollo_dedup", test_apollo_dedup, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/device_based_ps5", test_device_based_ps5, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/crossbuy_and_trial", test_crossbuy_and_trial, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },

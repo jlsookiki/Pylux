@@ -51,6 +51,8 @@ public:
     Q_INVOKABLE void fetchGameDetails(const QString &productId, const QJSValue &callback);
 
     // Steam shortcut creation for cloud games
+    // PSN title id ("PPSA23226_00") for a product or entitlement id, or "".
+    Q_INVOKABLE QString titleIdForProduct(const QString &productId) const;
     Q_INVOKABLE void createCloudSteamShortcut(const QString &gameIdentifier, const QString &gameName,
                                               const QString &command, const QJSValue &callback,
                                               const QString &steamDir = QString());

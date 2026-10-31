@@ -33,6 +33,7 @@ Rectangle {
     signal streamGame(string productId, string platform, string serviceType)
     signal createShortcut(string productId, string entitlementId, string platform, string serviceType, string gameName)
     signal toggleFavorite(string productId)
+    signal viewTrophies(string npTitleId)
     
     // Generate controller button icon path
     function getControllerIcon(buttonName) {
@@ -554,6 +555,16 @@ Rectangle {
                 event.accepted = true;
             } else {
                 console.warn("[CloudGameCard] Cannot create shortcut (keyboard) - missing product ID for API");
+            }
+        }
+        // Triangle/Y button (Y key) - Trophies for this title
+        else if (event.key === Qt.Key_Y) {
+            let npTitleId = Chiaki.cloudCatalog.titleIdForProduct(getProductIdForApi());
+            if (npTitleId !== "") {
+                viewTrophies(npTitleId);
+                event.accepted = true;
+            } else {
+                console.warn("[CloudGameCard] No title id in", getProductIdForApi(), "- cannot show trophies");
             }
         }
     }

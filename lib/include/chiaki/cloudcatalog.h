@@ -134,6 +134,11 @@ CHIAKI_EXPORT void chiaki_cloudcatalog_invalidate_cache(const char *cache_dir);
  *  for empty/NULL input. */
 CHIAKI_EXPORT void chiaki_cloud_gaikai_language(const char *locale, char *out, size_t out_sz);
 
+/** The PSN title id ("PPSA23226_00") inside a product or entitlement id of the
+ *  form "<vendor>-<title>_<nn>-<sku>", or "" when the id has no such segment.
+ *  Writes into @p out (>= 16 bytes recommended) and returns it. */
+CHIAKI_EXPORT const char *chiaki_cloud_title_id_from_product_id(const char *product_id, char *out, size_t out_sz);
+
 /** Number of locales offered in the cloud-language picker. */
 CHIAKI_EXPORT size_t chiaki_cloud_supported_locale_count(void);
 

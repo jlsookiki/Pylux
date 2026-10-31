@@ -522,6 +522,13 @@ QJsonObject CloudCatalogBackend::extractGameImages(const QJsonObject &gameData)
     return images;
 }
 
+QString CloudCatalogBackend::titleIdForProduct(const QString &productId) const
+{
+    char out[32];
+    chiaki_cloud_title_id_from_product_id(productId.toUtf8().constData(), out, sizeof(out));
+    return QString::fromLatin1(out);
+}
+
 QString CloudCatalogBackend::findProductIdForEntitlement(const QString &entitlementId)
 {
     QString libraryCached = getCachedData("ps5_cloud_library", INT_MAX);

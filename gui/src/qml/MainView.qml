@@ -1703,6 +1703,27 @@ Pane {
                         color: "white"
                     }
                 }
+
+                // Trophies hint (Y/Triangle button)
+                RowLayout {
+                    spacing: 6
+                    visible: mainTabBar.currentIndex === 1
+                    Image {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        sourceSize: Qt.size(36, 36)
+                        source: root.controllerButton("pyramid")
+                        opacity: 0.9
+                        smooth: true
+                        antialiasing: true
+                    }
+                    Label {
+                        text: qsTr("Trophies")
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        color: "white"
+                    }
+                }
             }
             
             // Center - Version number (absolutely centered)
