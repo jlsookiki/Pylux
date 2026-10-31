@@ -500,8 +500,9 @@ QJsonObject CloudCatalogBackend::extractGameImages(const QJsonObject &gameData)
         }
     }
     
-    // 16:9 screenshots are the only wide art this API offers; they make the
-    // Steam hero banner where the square cover would be letterboxed.
+    // Few titles carry landscape key art (types 12/13 above); 16:9
+    // screenshots are the wide art everything else has, and either crops to
+    // the Steam hero banner where the square cover would be letterboxed.
     QJsonArray screenshots;
     if (gameData.contains("mediaList") && gameData["mediaList"].isObject()) {
         const QJsonArray shots = gameData["mediaList"].toObject()["screenshots"].toArray();
@@ -905,22 +906,27 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     }
     
     QJsonObject gameData = doc.object();
-    QJsonObject extractedImages = gameData["extracted_images"].toObject();
+    // Re-extract from the raw store object rather than trusting the
+    // "extracted_images" written when it was cached: entries cached by
+    // earlier builds predate the screenshot list and live for days.
+    QJsonObject extractedImages = extractGameImages(gameData);
     
     const QString coverUrl = extractedImages["cover"].toString();
     const QString landscapeUrl = extractedImages["landscape"].toString();
+    // The publisher's landscape key art is the banner they designed; most
+    // titles only have screenshots, which crop to the hero shape just as well.
     QStringList wideUrls;
-    for (const QJsonValue &v : extractedImages["screenshots"].toArray())
-        wideUrls << v.toString();
     if (!landscapeUrl.isEmpty())
         wideUrls << landscapeUrl;
+    for (const QJsonValue &v : extractedImages["screenshots"].toArray())
+        wideUrls << v.toString();
 
     infoLambda("[I] Downloading cover...");
     QPixmap cover;
     if (!coverUrl.isEmpty())
         cover = downloadImageFromUrl(coverUrl);
 
-    infoLambda("[I] Downloading a screenshot for the banner...");
+    infoLambda("[I] Downloading wide art for the banner...");
     QPixmap wide;
     for (const QString &url : wideUrls) {
         wide = downloadImageFromUrl(url);
@@ -934,7 +940,7 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
         for (auto it = composed.cbegin(); it != composed.cend(); ++it)
             artwork.insert(it.key(), new QPixmap(it.value()));
         if (wide.isNull())
-            infoLambda("[I] No screenshot available; the banner is built from the cover.");
+            infoLambda("[I] No wide art available; the banner is built from the cover.");
     } else {
         // Nothing usable from the store: fall back to Pylux's generic art
         // so the tile is at least recognisable as a Pylux shortcut.
