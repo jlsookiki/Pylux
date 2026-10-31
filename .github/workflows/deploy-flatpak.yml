@@ -58,13 +58,8 @@ jobs:
         id: extract_version
         uses: ./.github/actions/extract-version
 
-      - name: Patch manifest to build from local checkout
-        run: |
-          sed -i '/^  - name: pylux/,/^  - name:\|^$/{
-            s|      - type: git|      - type: dir|
-            s|        url:.*|        path: ../../|
-            /commit:/d
-          }' scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux.yml
+      - name: Patch manifest to build from this checkout
+        run: bash scripts/flatpak/use-local-checkout.sh
 
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         id: flatpak_build

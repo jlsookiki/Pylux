@@ -29,12 +29,7 @@ jobs:
           submodules: recursive
 
       - name: Patch manifest to build from this checkout
-        run: |
-          sed -i '/^  - name: pylux/,/^  - name:\|^$/{
-            s|      - type: git|      - type: dir|
-            s|        url:.*|        path: ../../|
-            /commit:/d
-          }' scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux.yml
+        run: bash scripts/flatpak/use-local-checkout.sh
 
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
