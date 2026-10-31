@@ -557,8 +557,10 @@ Rectangle {
                 console.warn("[CloudGameCard] Cannot create shortcut (keyboard) - missing product ID for API");
             }
         }
-        // Triangle/Y button (Y key) - Trophies for this title
-        else if (event.key === Qt.Key_Y) {
+        // Triangle/Y button - Trophies for this title. The controller
+        // delivers Triangle as Key_Yes (see qmlcontroller.cpp); Y and C are
+        // the keyboard equivalents the other views accept.
+        else if (event.key === Qt.Key_Y || event.key === Qt.Key_Yes || event.key === Qt.Key_C) {
             let npTitleId = Chiaki.cloudCatalog.titleIdForProduct(getProductIdForApi());
             if (npTitleId !== "") {
                 viewTrophies(npTitleId);
