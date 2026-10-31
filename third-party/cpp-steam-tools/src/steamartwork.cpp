@@ -55,10 +55,12 @@ QMap<QString, QPixmap> compose(const QPixmap &cover, const QPixmap &screenshot)
 	// The hero is a wide banner behind the title; a screenshot cropped to
 	// shape fills it, a square cover would be letterboxed.
 	out["hero"] = screenshot.isNull() ? centred(cover, cover, 1920, 620) : coverCrop(screenshot, 1920, 620);
-	// Capsules need the cover recognisable, so it sits on a soft wide
-	// backdrop instead of being cropped.
+	// The wide capsule keeps the cover whole on a soft backdrop; cropping a
+	// square to 2:1 would lose most of it. The portrait capsule is close
+	// enough to square that filling it keeps the art and loses only the
+	// edges, which reads far better in the library grid than a band.
 	out["landscape"] = centred(cover, wide, 920, 430);
-	out["portrait"] = centred(cover, wide, 600, 900);
+	out["portrait"] = coverCrop(cover, 600, 900);
 	out["icon"] = coverCrop(cover, 256, 256);
 	return out;
 }

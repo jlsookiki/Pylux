@@ -1,8 +1,8 @@
 // Checks on the composed Steam artwork with solid-colour fixtures, so a
 // pixel either is the source colour or it is not: every slot is the size
-// Steam expects, a 16:9 screenshot fills the hero edge to edge, the square
-// cover keeps its shape inside the capsules, and a cover-only input still
-// fills every slot.
+// Steam expects, a 16:9 screenshot fills the hero edge to edge, the cover
+// fills the portrait slot and sits whole in the wide capsule, and a
+// cover-only input still fills every slot.
 
 #include "steamartwork.h"
 
@@ -58,18 +58,24 @@ static void testHeroIsTheScreenshotEdgeToEdge()
 	CHECK(!is(hero, 960, 310, COVER));
 }
 
-static void testPortraitKeepsTheCoverSquare()
+static void testPortraitIsTheCoverEdgeToEdge()
 {
+	// The cover fills the 600x900 slot: every corner is cover colour, no band.
 	const QImage portrait = SteamArtwork::compose(solid(1000, 1000, COVER), solid(1920, 1080, SHOT)).value("portrait").toImage();
-	// 600x900 slot, 1:1 cover scaled to 600x600 and centred: rows 150..749
-	// are the cover, the bands above and below are the darkened backdrop.
-	CHECK(is(portrait, 300, 150, COVER));
-	CHECK(is(portrait, 300, 749, COVER));
-	CHECK(is(portrait, 0, 450, COVER));
-	CHECK(is(portrait, 599, 450, COVER));
-	CHECK(!is(portrait, 300, 149, COVER));
-	CHECK(!is(portrait, 300, 750, COVER));
-	CHECK(!is(portrait, 300, 40, SHOT)); // backdrop is darkened, never the raw screenshot
+	CHECK(is(portrait, 0, 0, COVER));
+	CHECK(is(portrait, 599, 0, COVER));
+	CHECK(is(portrait, 0, 899, COVER));
+	CHECK(is(portrait, 599, 899, COVER));
+	CHECK(is(portrait, 300, 450, COVER));
+	// And it is a crop, not a stretch: a cover with a distinct left edge
+	// loses that edge rather than squeezing it in.
+	QImage marked(1000, 1000, QImage::Format_RGB32);
+	marked.fill(COVER);
+	for(int y = 0; y < 1000; y++)
+		for(int x = 0; x < 100; x++)
+			marked.setPixelColor(x, y, SHOT);
+	const QImage cropped = SteamArtwork::compose(QPixmap::fromImage(marked), QPixmap()).value("portrait").toImage();
+	CHECK(is(cropped, 0, 450, COVER));
 }
 
 static void testLandscapeCentresTheCover()
@@ -117,7 +123,7 @@ int main(int argc, char **argv)
 	QGuiApplication app(argc, argv);
 	testSizes();
 	testHeroIsTheScreenshotEdgeToEdge();
-	testPortraitKeepsTheCoverSquare();
+	testPortraitIsTheCoverEdgeToEdge();
 	testLandscapeCentresTheCover();
 	testIconIsTheCover();
 	testCoverOnlyFillsEverySlot();

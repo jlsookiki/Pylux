@@ -10,7 +10,7 @@
 // Composes the images Steam shows for a non-Steam shortcut from whatever
 // store art is available: a square cover and, if possible, a 16:9
 // screenshot. Produces "hero" (1920x620), "landscape" (920x430),
-// "portrait" (600x900) and "icon" (256x256). No "logo" is produced on
+// "portrait" (600x900, the cover filling the slot) and "icon" (256x256). No "logo" is produced on
 // purpose: without one Steam prints the game's name over the hero, which
 // beats a wrong logo.
 namespace SteamArtwork {
