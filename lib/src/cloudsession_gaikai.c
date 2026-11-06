@@ -542,8 +542,11 @@ static ChiakiErrorCode gk_step9_authorize(GaikaiCtx *c, ChiakiCloudProvisionResu
 	return CHIAKI_ERR_SUCCESS;
 }
 
-static ChiakiErrorCode gk_step10_lock(GaikaiCtx *c)
+// `*out_unauthorized` is set when the lock answers 401: the session key from
+// authorize was superseded by another sign-in on this account.
+static ChiakiErrorCode gk_step10_lock(GaikaiCtx *c, bool *out_unauthorized)
 {
+	*out_unauthorized = false;
 	gk_progress(c, "Locking Session - Step 7 of 10");
 	int net_errors = 0; // consecutive transient network failures, like the allocate poll
 	for(int attempt = 0; attempt <= MAX_LOCK_RETRIES; attempt++)
@@ -572,6 +575,7 @@ static ChiakiErrorCode gk_step10_lock(GaikaiCtx *c)
 			continue;
 		}
 		net_errors = 0;
+		if(resp.status_code == 401) *out_unauthorized = true;
 		if(resp.status_code != 200) { CHIAKI_LOGE(c->log, "[GAIKAI] step10 lock http %ld", resp.status_code); cc_http_response_fini(&resp); return CHIAKI_ERR_UNKNOWN; }
 		gk_update_session_key(c, &resp);
 		struct json_object *j = resp.data ? json_tokener_parse(resp.data) : NULL;
@@ -1124,6 +1128,31 @@ static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResu
 	}
 }
 
+// Steps 8 to 10: open the session, get both auth codes, authorize, lock.
+// A 401 on the lock means the session key was superseded by another
+// sign-in on this account while these ran; the whole sequence is run once
+// more so the lock uses a fresh key and codes.
+static ChiakiErrorCode gk_session_and_lock(GaikaiCtx *c, ChiakiCloudProvisionResult *out, bool *psplus_err)
+{
+	for(int pass = 0; pass < 2; pass++)
+	{
+		ChiakiErrorCode e = gk_step8_start(c, out);
+		if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(c)) e = CHIAKI_ERR_CANCELED;
+		if(e == CHIAKI_ERR_SUCCESS) e = gk_step8a_gk_authcode(c);
+		if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(c)) e = CHIAKI_ERR_CANCELED;
+		if(e == CHIAKI_ERR_SUCCESS) e = gk_step8b_server_authcode(c);
+		if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(c)) e = CHIAKI_ERR_CANCELED;
+		if(e == CHIAKI_ERR_SUCCESS) e = gk_step9_authorize(c, out, psplus_err);
+		if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(c)) e = CHIAKI_ERR_CANCELED;
+		if(e != CHIAKI_ERR_SUCCESS) return e;
+		bool unauthorized = false;
+		e = gk_step10_lock(c, &unauthorized);
+		if(e == CHIAKI_ERR_SUCCESS || !unauthorized || pass == 1 || gk_cancelled(c)) return e;
+		CHIAKI_LOGW(c->log, "[GAIKAI] lock rejected the session key; opening a new session once");
+	}
+	return CHIAKI_ERR_UNKNOWN;
+}
+
 ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 	const ChiakiCloudProvisionConfig *cfg, const char *duid,
 	const char *platform, const char *entitlement_id,
@@ -1156,15 +1185,7 @@ ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step7_config(&c);
 	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
-	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8_start(&c, out);
-	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
-	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8a_gk_authcode(&c);
-	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
-	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8b_server_authcode(&c);
-	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
-	if(e == CHIAKI_ERR_SUCCESS) e = gk_step9_authorize(&c, out, &psplus_err);
-	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
-	if(e == CHIAKI_ERR_SUCCESS) e = gk_step10_lock(&c);
+	if(e == CHIAKI_ERR_SUCCESS) e = gk_session_and_lock(&c, out, &psplus_err);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step11_datacenters(&c);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step12_select(&c);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step13_allocate(&c, out);

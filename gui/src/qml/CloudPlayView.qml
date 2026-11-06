@@ -78,21 +78,35 @@ Pane {
                 favoriteProductIds = [];
             }
         }
-        Qt.callLater(() => loadUnifiedCatalog());
+        if (!Chiaki.window.directStream)
+            Qt.callLater(() => loadUnifiedCatalog());
         initialFocusTimer.restart();
     }
     
     onVisibleChanged: {
         if (visible) {
-            if (allGames.length === 0)
+            if (allGames.length === 0 && !Chiaki.window.directStream)
                 loadUnifiedCatalog();
             initialFocusTimer.restart();
         }
     }
     
     StackView.onActivated: {
-        Qt.callLater(() => loadUnifiedCatalog());
+        if (!Chiaki.window.directStream)
+            Qt.callLater(() => loadUnifiedCatalog());
         initialFocusTimer.restart();
+    }
+
+    // A launch straight into a stream (a Steam tile) must not refresh the
+    // catalog while the stream is being set up: the refresh signs in to the
+    // store on its own, which made the stream's session lock fail. Direct
+    // mode ends if that stream fails, and the grid loads then.
+    Connections {
+        target: Chiaki.window
+        function onDirectStreamChanged() {
+            if (!Chiaki.window.directStream && allGames.length === 0)
+                Qt.callLater(() => loadUnifiedCatalog());
+        }
     }
 
     // Account/profile switch, NPSSO change, or cloud-language change wipes the catalog cache in the

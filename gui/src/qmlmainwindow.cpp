@@ -125,6 +125,17 @@ QmlMainWindow::QmlMainWindow(Settings *settings, const QString &serviceType, con
     init(settings, exit_app_on_stream_exit, steamworks);
     startCloudStreaming(serviceType, gameIdentifier);
 
+    // The game view holds off its catalog refresh while a direct stream is
+    // being set up; once that stream fails the main view is back, so it can.
+    // A direct stream that starts needs no such step: this constructor is
+    // only used for launches that quit when the stream ends.
+    connect(backend, &QmlBackend::sessionError, this, [this](const QString &, const QString &) {
+        if (!direct_stream)
+            return;
+        direct_stream = false;
+        emit directStreamChanged();
+    });
+
     // Connect session quit when session is created (cloud streaming is async, so we connect via sessionChanged)
     // Only quit app if exit_app_on_stream_exit is true (command line launch)
     connect(backend, &QmlBackend::sessionChanged, this, [this, exit_app_on_stream_exit](StreamSession *s) {
