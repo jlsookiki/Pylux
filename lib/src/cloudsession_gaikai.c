@@ -119,6 +119,21 @@ static void gk_update_session_key(GaikaiCtx *c, const CCHttpResponse *resp)
 	else free(k);
 }
 
+// Sony's service can ask the client to prove it is a console or Portal:
+// x-gaikai-need-consoletoken with an x-sie-validation-request challenge. A
+// client that does not answer has its lock refused. Logged by name so the
+// challenge can be studied; only these two, never the whole header block.
+static void gk_log_device_check(GaikaiCtx *c, const CCHttpResponse *resp, const char *step)
+{
+	char *need = gk_header_value(resp->headers, "x-gaikai-need-consoletoken");
+	char *challenge = gk_header_value(resp->headers, "x-sie-validation-request");
+	if(need || challenge)
+		CHIAKI_LOGW(c->log, "[GAIKAI] %s: device check requested (need-consoletoken=%s validation-request=%s)",
+			step, need ? need : "-", challenge ? challenge : "-");
+	free(need);
+	free(challenge);
+}
+
 // Extract a query parameter value (no URL-decoding; Gaikai codes are URL-safe).
 static char *gk_query_param(const char *url, const char *key)
 {
@@ -538,6 +553,7 @@ static ChiakiErrorCode gk_step9_authorize(GaikaiCtx *c, ChiakiCloudProvisionResu
 		return CHIAKI_ERR_UNKNOWN;
 	}
 	gk_update_session_key(c, &resp);
+	gk_log_device_check(c, &resp, "step9");
 	cc_http_response_fini(&resp);
 	return CHIAKI_ERR_SUCCESS;
 }
