@@ -576,7 +576,16 @@ static ChiakiErrorCode gk_step10_lock(GaikaiCtx *c, bool *out_unauthorized)
 		}
 		net_errors = 0;
 		if(resp.status_code == 401) *out_unauthorized = true;
-		if(resp.status_code != 200) { CHIAKI_LOGE(c->log, "[GAIKAI] step10 lock http %ld", resp.status_code); cc_http_response_fini(&resp); return CHIAKI_ERR_UNKNOWN; }
+		if(resp.status_code != 200)
+		{
+			// The event header names the reason (e.g. 002.0011 forceLogoutRequested).
+			char *ev = gk_header_value(resp.headers, "x-gaikai-event");
+			CHIAKI_LOGE(c->log, "[GAIKAI] step10 lock http %ld event=%s body=%s", resp.status_code,
+				ev ? ev : "-", resp.data ? resp.data : "-");
+			free(ev);
+			cc_http_response_fini(&resp);
+			return CHIAKI_ERR_UNKNOWN;
+		}
 		gk_update_session_key(c, &resp);
 		struct json_object *j = resp.data ? json_tokener_parse(resp.data) : NULL;
 		bool acquired = j && cc_json_bool(j, "lockAcquired");
