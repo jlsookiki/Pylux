@@ -219,6 +219,8 @@ class CloudStreamingBackend(
 						"Account privacy settings need updating")
 				msg.contains("PING_TIMEOUT") ->
 					PingTimeoutException("Ping must be < 80ms to start a cloud session")
+				msg.contains("CONSOLE_TOKEN_REQUIRED") ->
+					GaikaiAllocationException("PlayStation is blocking PS5 cloud streaming in this app right now.")
 				else -> GaikaiAllocationException(msg)
 			}
 			Result.failure(ex)

@@ -65,6 +65,7 @@ typedef struct
 	int selected_dc_port;
 	bool ping_timeout;          // best measured RTT exceeded the auto-select gate (>80ms)
 	bool forced_dc_unavailable; // settings-forced datacenter not in this title's list
+	bool device_check_requested; // authorize asked for a console token this client cannot give
 } GaikaiCtx;
 
 static void gk_progress(GaikaiCtx *c, const char *stage)
@@ -121,15 +122,19 @@ static void gk_update_session_key(GaikaiCtx *c, const CCHttpResponse *resp)
 
 // Sony's service can ask the client to prove it is a console or Portal:
 // x-gaikai-need-consoletoken with an x-sie-validation-request challenge. A
-// client that does not answer has its lock refused. Logged by name so the
-// challenge can be studied; only these two, never the whole header block.
-static void gk_log_device_check(GaikaiCtx *c, const CCHttpResponse *resp, const char *step)
+// client that does not answer has its lock refused. Remembered for the
+// error report and logged by name so the challenge can be studied; only
+// these two, never the whole header block.
+static void gk_note_device_check(GaikaiCtx *c, const CCHttpResponse *resp, const char *step)
 {
 	char *need = gk_header_value(resp->headers, "x-gaikai-need-consoletoken");
 	char *challenge = gk_header_value(resp->headers, "x-sie-validation-request");
 	if(need || challenge)
+	{
+		c->device_check_requested = true;
 		CHIAKI_LOGW(c->log, "[GAIKAI] %s: device check requested (need-consoletoken=%s validation-request=%s)",
 			step, need ? need : "-", challenge ? challenge : "-");
+	}
 	free(need);
 	free(challenge);
 }
@@ -553,7 +558,7 @@ static ChiakiErrorCode gk_step9_authorize(GaikaiCtx *c, ChiakiCloudProvisionResu
 		return CHIAKI_ERR_UNKNOWN;
 	}
 	gk_update_session_key(c, &resp);
-	gk_log_device_check(c, &resp, "step9");
+	gk_note_device_check(c, &resp, "step9");
 	cc_http_response_fini(&resp);
 	return CHIAKI_ERR_SUCCESS;
 }
@@ -1172,9 +1177,14 @@ static ChiakiErrorCode gk_session_and_lock(GaikaiCtx *c, ChiakiCloudProvisionRes
 		if(e != CHIAKI_ERR_SUCCESS) return e;
 		bool unauthorized = false;
 		e = gk_step10_lock(c, &unauthorized);
-		if(e == CHIAKI_ERR_SUCCESS || !unauthorized || pass == 1 || gk_cancelled(c)) return e;
+		if(e == CHIAKI_ERR_SUCCESS || !unauthorized || gk_cancelled(c)) return e;
+		if(pass == 1) break;
 		CHIAKI_LOGW(c->log, "[GAIKAI] lock rejected the session key; opening a new session once");
 	}
+	// Refused twice after authorize asked for a console token: that check,
+	// not a stale key, is what blocks the stream.
+	if(c->device_check_requested && !out->error_message)
+		out->error_message = strdup("CONSOLE_TOKEN_REQUIRED");
 	return CHIAKI_ERR_UNKNOWN;
 }
 

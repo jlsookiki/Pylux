@@ -176,6 +176,8 @@ final class CloudStreamingBackend {
             throw GameNotFreeError(price: price)
         } else if msg.contains("PING_TIMEOUT") {
             throw PingTimeoutError()
+        } else if msg.contains("CONSOLE_TOKEN_REQUIRED") {
+            throw GaikaiAllocationError(message: "PlayStation is blocking PS5 cloud streaming in this app right now.")
         } else {
             throw GaikaiAllocationError(message: msg)
         }

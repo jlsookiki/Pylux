@@ -402,6 +402,8 @@ void CloudStreamingBackend::handleProvisionError(QString serviceType, QString er
             qmlBackend->setShowAccountPrivacySettingsDialog(true);
         }
         userMessage = tr("Account privacy settings need updating");
+    } else if (errorMessage.contains(QStringLiteral("CONSOLE_TOKEN_REQUIRED"))) {
+        userMessage = tr("PlayStation is blocking PS5 cloud streaming in this app right now.");
     } else if (errorMessage.contains(QStringLiteral("PING_TIMEOUT"))) {
         if (qmlBackend) qmlBackend->setShowPingTimeoutDialog(true);
         userMessage = tr("Ping must be < 80ms to start a cloud session");
